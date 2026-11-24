@@ -40,9 +40,10 @@ the host firewall or a public proxy.
    `global-queue.properties`.
 4. Set a unique `nodeId`, the local forwarded coordinator URL, and that edge's
    own HMAC key. Use mode `0600` for the properties file.
-5. Use `requestTimeoutMillis=4000` and `pollIntervalMillis=2000` as the
-   starting values. The plugin accepts 200–5000 ms requests and 250–10000 ms
-   polling intervals.
+5. Keep `requestTimeoutMillis=4000` and `pollIntervalMillis=2000` explicit in
+   the properties file. The source fallbacks are 1000 ms if either key is
+   omitted; the example uses the values configured on Fiesta's two edges. The
+   plugin accepts 200–5000 ms requests and 250–10000 ms polling intervals.
 6. Configure AJQueue's `fiesta` target to use the `fiesta-global` holder and
    keep its backend private to the proxy.
 

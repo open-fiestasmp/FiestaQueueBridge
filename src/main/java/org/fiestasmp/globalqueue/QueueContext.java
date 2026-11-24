@@ -56,8 +56,8 @@ final class QueueContext {
             throw new IllegalArgumentException("coordinatorUrl must be a loopback HTTP endpoint at /v1/queue (Oracle tunnel is local)");
         }
         String key = required(properties, "hmacKeyHex");
-        long timeout = bounded(properties, "requestTimeoutMillis", 4000, 200, 5000);
-        long poll = bounded(properties, "pollIntervalMillis", 2000, 250, 10000);
+        long timeout = bounded(properties, "requestTimeoutMillis", 1000, 200, 5000);
+        long poll = bounded(properties, "pollIntervalMillis", 1000, 250, 10000);
         return new QueueContext(new CoordinatorClient(endpoint, node, key, timeout), logger, node, poll);
     }
 
