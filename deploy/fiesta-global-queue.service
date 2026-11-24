@@ -1,0 +1,26 @@
+[Unit]
+Description=Fiesta shared queue coordinator
+After=network.target
+
+[Service]
+Type=simple
+User=fiesta-gq
+Group=fiesta-gq
+WorkingDirectory=/opt/fiesta-queue-bridge
+Environment=FIESTA_GQ_HOST=127.0.0.1
+Environment=FIESTA_GQ_PORT=25568
+Environment=FIESTA_GQ_DB=/var/lib/fiesta-queue-bridge/queue.db
+Environment=FIESTA_GQ_KEYS_DIR=/etc/fiesta-queue-bridge/keys
+Environment=FIESTA_GQ_NODES=oracle,luna
+Environment=FIESTA_GQ_EVENT_NODES=oracle-queue,luna-queue
+Environment=FIESTA_GQ_STATS_EXPORT=/var/lib/fiesta-queue-bridge/player_stats.json
+ExecStart=/usr/bin/python3 -u /opt/fiesta-queue-bridge/coordinator.py
+Restart=on-failure
+RestartSec=2
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fiesta-queue-bridge
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

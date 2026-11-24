@@ -1,0 +1,11 @@
+{
+  "id": "fiesta-global-queue",
+  "name": "FiestaGlobalQueue",
+  "version": "0.1.0-dev",
+  "description": "Authenticated shared AJQueue FIFO for Fiesta's Oracle and Luna edges",
+  "authors": ["Open-FiestaSMP"],
+  "dependencies": [
+    { "id": "ajqueue", "optional": false }
+  ],
+  "main": "org.fiestasmp.globalqueue.FiestaGlobalQueuePlugin"
+}

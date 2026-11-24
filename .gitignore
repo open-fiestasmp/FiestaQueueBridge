@@ -1,0 +1,15 @@
+__pycache__/
+.pytest_cache/
+.venv/
+build/
+logs/
+lib/*.jar
+*.py[cod]
+*.db
+*.db-shm
+*.db-wal
+.env
+*.key
+*.pem
+*.p12
+global-queue.properties

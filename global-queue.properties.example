@@ -1,0 +1,8 @@
+# Copy to the Velocity data directory as global-queue.properties and chmod 600.
+# Use the Oracle edge's own generated 64-hex-character secret on Oracle.
+# Use a different secret for Luna; the coordinator stores the two keys separately.
+nodeId=oracle
+coordinatorUrl=http://127.0.0.1:25568/v1/queue
+hmacKeyHex=REPLACE_WITH_THIS_EDGE_ONLY_64_HEX_CHARACTER_KEY
+requestTimeoutMillis=4000
+pollIntervalMillis=2000
