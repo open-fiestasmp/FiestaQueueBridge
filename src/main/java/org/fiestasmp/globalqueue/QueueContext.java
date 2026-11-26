@@ -21,6 +21,9 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Shared state and network client used by each holder instance on one edge. */
@@ -29,7 +32,14 @@ final class QueueContext {
     private final Logger logger;
     private final String nodeId;
     private final long pollIntervalMillis;
+    private final long transferDelayMillis;
+    private final ScheduledExecutorService transferScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "fiesta-queue-transfer");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final ConcurrentHashMap<String, QueuePlayer> localPlayers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long> loginTimes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, PendingAdd> pendingAdds = new ConcurrentHashMap<>();
     private final Set<String> pendingRemovals = ConcurrentHashMap.newKeySet();
     private final AtomicLong nextPendingSequence = new AtomicLong();
@@ -38,11 +48,13 @@ final class QueueContext {
     private volatile boolean nodeReset;
     private volatile long lastWarningMillis;
 
-    private QueueContext(CoordinatorClient client, Logger logger, String nodeId, long pollIntervalMillis) {
+    private QueueContext(CoordinatorClient client, Logger logger, String nodeId, long pollIntervalMillis,
+                         long transferDelayMillis) {
         this.client = client;
         this.logger = logger;
         this.nodeId = nodeId;
         this.pollIntervalMillis = pollIntervalMillis;
+        this.transferDelayMillis = transferDelayMillis;
     }
 
     static QueueContext create(Properties properties, Logger logger) throws Exception {
@@ -58,7 +70,8 @@ final class QueueContext {
         String key = required(properties, "hmacKeyHex");
         long timeout = bounded(properties, "requestTimeoutMillis", 1000, 200, 5000);
         long poll = bounded(properties, "pollIntervalMillis", 1000, 250, 10000);
-        return new QueueContext(new CoordinatorClient(endpoint, node, key, timeout), logger, node, poll);
+        long transferDelay = bounded(properties, "transferDelayMillis", 3000, 0, 10000);
+        return new QueueContext(new CoordinatorClient(endpoint, node, key, timeout), logger, node, poll, transferDelay);
     }
 
     private static String required(Properties properties, String key) {
@@ -193,6 +206,7 @@ final class QueueContext {
     void removePlayer(QueuePlayer player) {
         synchronized (mutationLock) {
             String uuid = player.getUniqueId().toString().toLowerCase();
+            if (player instanceof SharedQueuePlayer shared) shared.cancelPendingTransfer();
             pendingAdds.remove(uuid);
             QueuePlayer local = player instanceof SharedQueuePlayer shared ? shared.localQueuePlayer() : player;
             if (local != null) localPlayers.remove(uuid, local);
@@ -217,6 +231,14 @@ final class QueueContext {
             warnLimited("Head-of-queue claim failed; no connection was sent to the main server.", e);
             return false;
         }
+    }
+
+    void scheduleTransfer(Runnable transfer, long delayMillis) {
+        transferScheduler.schedule(transfer, delayMillis, TimeUnit.MILLISECONDS);
+    }
+
+    void close() {
+        transferScheduler.shutdownNow();
     }
 
     private void applySnapshot(JsonObject response) {
@@ -302,6 +324,15 @@ final class QueueContext {
     QueueView view() { return view; }
     String nodeId() { return nodeId; }
     long pollIntervalMillis() { return pollIntervalMillis; }
+    long transferDelayMillis() { return transferDelayMillis; }
+    void recordLogin(UUID uuid) { loginTimes.put(uuid, System.nanoTime()); }
+    void forgetLogin(UUID uuid) { loginTimes.remove(uuid); }
+    long remainingTransferDelayMillis(UUID uuid) {
+        Long loginTime = loginTimes.get(uuid);
+        if (loginTime == null) return 0L;
+        long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - loginTime);
+        return Math.max(0L, transferDelayMillis - elapsed);
+    }
     void loggerError(String message, Throwable error) { logger.error("[FiestaGlobalQueue] " + message, error); }
     void loggerInfo(String message) { logger.info("[FiestaGlobalQueue] " + message); }
 

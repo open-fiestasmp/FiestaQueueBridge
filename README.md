@@ -14,6 +14,8 @@ forward. Keep the listener private; do not open its port to the internet.
 - Rejects the same account UUID arriving through two edges.
 - Lets only the global queue head claim a connection to the main server.
 - Holds or denies admissions when an expected edge stops reporting healthy.
+- Delays a queue-to-game handoff only when it happens within the configured
+  three-second login grace; players who have already waited are sent normally.
 - Stores queue-only PvP events separately from the main server's player data.
 - Keeps queue worlds and their inventories on the queue backend.
 

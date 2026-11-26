@@ -6,3 +6,4 @@ coordinatorUrl=http://127.0.0.1:25568/v1/queue
 hmacKeyHex=REPLACE_WITH_THIS_EDGE_ONLY_64_HEX_CHARACTER_KEY
 requestTimeoutMillis=4000
 pollIntervalMillis=2000
+transferDelayMillis=3000

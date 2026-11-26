@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -61,6 +63,7 @@ public final class CoordinatorClientSmoke {
         properties.setProperty("nodeId", "oracle");
         properties.setProperty("coordinatorUrl", args[0]);
         properties.setProperty("hmacKeyHex", args[1]);
+        properties.setProperty("transferDelayMillis", "500");
         QueueContext context = QueueContext.create(properties, LoggerFactory.getLogger("FiestaGlobalQueueSmoke"));
         context.refresh();
         GlobalQueueHolder.setContext(context);
@@ -76,6 +79,7 @@ public final class CoordinatorClientSmoke {
         holderRef.set(holder);
         UUID id = UUID.fromString("50000000-0000-0000-0000-000000000001");
         AtomicInteger sends = new AtomicInteger();
+        CountDownLatch transferSent = new CountDownLatch(1);
         AdaptedPlayer adapted = (AdaptedPlayer) Proxy.newProxyInstance(AdaptedPlayer.class.getClassLoader(),
                 new Class<?>[]{AdaptedPlayer.class}, (proxy, method, methodArgs) -> switch (method.getName()) {
                     case "getUniqueId" -> id;
@@ -95,7 +99,7 @@ public final class CoordinatorClientSmoke {
                     case "getMaxOfflineTime" -> 0;
                     case "getTimeSinceOnline", "getAbsolutePosition", "getETA" -> 0;
                     case "getInitialServer" -> null;
-                    case "connect" -> { sends.incrementAndGet(); yield null; }
+                    case "connect" -> { sends.incrementAndGet(); transferSent.countDown(); yield null; }
                     default -> defaultValue(method.getReturnType());
                 });
         holder.addPlayer(local);
@@ -105,8 +109,12 @@ public final class CoordinatorClientSmoke {
         }
         QueuePlayerImpl wrapped = (QueuePlayerImpl) localQueue.get(0);
         wrapped.setLeaveTime(System.currentTimeMillis()); // AJQueue's disconnect hook casts and calls this.
+        context.recordLogin(id);
         wrapped.connect(null);
-        if (sends.get() != 1 || holder.getPosition(wrapped) != 1) {
+        wrapped.connect(null);
+        Thread.sleep(100);
+        if (sends.get() != 0 || holder.getPosition(wrapped) != 1 ||
+                !transferSent.await(2, TimeUnit.SECONDS) || sends.get() != 1) {
             throw new AssertionError("holder position or guarded connect path failed");
         }
 
@@ -130,6 +138,7 @@ public final class CoordinatorClientSmoke {
         holder.removePlayer(wrapped);
         holder.removePlayer(holder.findPlayer(secondId));
         if (holder.getTotalQueueSize() != 0) throw new AssertionError("holder failed to remove completed entries");
+        context.close();
 
         int unavailablePort;
         try (ServerSocket socket = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
@@ -150,7 +159,8 @@ public final class CoordinatorClientSmoke {
         if (held == null) throw new AssertionError("local arrival was lost while the coordinator was unavailable");
         held.connect(null);
         if (sends.get() != 1) throw new AssertionError("a coordinator outage allowed a queue admission");
-        System.out.println("Java HMAC client, shared FIFO, stable AJQueue wrappers, fail-closed outage handling, and guarded admission passed.");
+        unavailableContext.close();
+        System.out.println("Java HMAC client, shared FIFO, stable AJQueue wrappers, login transfer grace, fail-closed outage handling, and guarded admission passed.");
     }
 
     private static Object defaultValue(Class<?> type) {

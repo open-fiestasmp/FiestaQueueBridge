@@ -7,6 +7,9 @@ import us.ajg0702.queue.api.server.AdaptedServer;
 import us.ajg0702.queue.common.players.QueuePlayerImpl;
 
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** AJQueue view for a globally ordered entry. All sends must win the coordinator's atomic head claim. */
 final class SharedQueuePlayer extends QueuePlayerImpl {
@@ -15,6 +18,8 @@ final class SharedQueuePlayer extends QueuePlayerImpl {
     private volatile EntryPosition position;
     private boolean initialized;
     private long offlineSinceMillis;
+    private final AtomicBoolean transferScheduled = new AtomicBoolean();
+    private final AtomicLong transferGeneration = new AtomicLong();
 
     SharedQueuePlayer(QueueContext context, QueueServer queueServer, QueueContext.QueueEntry entry, int index) {
         super(UUID.fromString(entry.uuid), entry.name, queueServer, entry.priority, entry.maxOfflineSeconds, entry.type);
@@ -75,6 +80,10 @@ final class SharedQueuePlayer extends QueuePlayerImpl {
         QueuePlayer player = delegate();
         if (player instanceof QueuePlayerImpl implementation) implementation.setLeaveTime(leaveTime);
     }
+    void cancelPendingTransfer() {
+        transferGeneration.incrementAndGet();
+        transferScheduled.set(false);
+    }
     @Override public int getMaxOfflineTime() {
         QueuePlayer player = delegate();
         EntryPosition current = current();
@@ -92,8 +101,36 @@ final class SharedQueuePlayer extends QueuePlayerImpl {
     }
     @Override public void connect(AdaptedServer server) {
         QueuePlayer player = delegate();
-        if (player == null || player.getPlayer() == null || !player.getPlayer().isConnected()) return;
-        if (context.claim(getUniqueId())) player.connect(server);
+        var online = player == null ? null : player.getPlayer();
+        if (online == null || !online.isConnected()) return;
+        long delayMillis = context.remainingTransferDelayMillis(getUniqueId());
+        if (delayMillis == 0L) {
+            if (context.claim(getUniqueId())) player.connect(server);
+            return;
+        }
+        if (!transferScheduled.compareAndSet(false, true)) return;
+        long generation = transferGeneration.incrementAndGet();
+        if (!context.claim(getUniqueId())) {
+            if (transferGeneration.get() == generation) transferScheduled.set(false);
+            return;
+        }
+        try {
+            context.scheduleTransfer(() -> {
+                try {
+                    if (transferGeneration.get() != generation) return;
+                    QueuePlayer current = delegate();
+                    var currentOnline = current == null ? null : current.getPlayer();
+                    if (current == player && currentOnline != null && currentOnline.isConnected() &&
+                            context.claim(getUniqueId())) {
+                        current.connect(server);
+                    }
+                } finally {
+                    if (transferGeneration.get() == generation) transferScheduled.set(false);
+                }
+            }, delayMillis);
+        } catch (RejectedExecutionException e) {
+            if (transferGeneration.get() == generation) transferScheduled.set(false);
+        }
     }
 
     private record EntryPosition(QueueContext.QueueEntry entry, int index) {}

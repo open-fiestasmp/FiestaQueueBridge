@@ -2,6 +2,8 @@ package org.fiestasmp.globalqueue;
 
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.DisconnectEvent;
+import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
@@ -64,6 +66,7 @@ public final class FiestaGlobalQueuePlugin {
             worker.scheduleWithFixedDelay(this::tryRegister, 0, 100, TimeUnit.MILLISECONDS);
             worker.scheduleWithFixedDelay(context::refresh, 0, context.pollIntervalMillis(), TimeUnit.MILLISECONDS);
             worker.schedule(this::logAjQueueTargets, 8, TimeUnit.SECONDS);
+            logger.info("[FiestaGlobalQueue] Queue transfer grace: {} ms.", context.transferDelayMillis());
             logger.info("[FiestaGlobalQueue] Loaded for edge '{}'; coordinator access will remain fail-closed.", context.nodeId());
         } catch (Exception e) {
             logger.error("[FiestaGlobalQueue] Startup failed; AJQueue's configured holder will remain in effect.", e);
@@ -97,7 +100,18 @@ public final class FiestaGlobalQueuePlugin {
     }
 
     @Subscribe
+    public void onPlayerPostLogin(PostLoginEvent event) {
+        if (context != null) context.recordLogin(event.getPlayer().getUniqueId());
+    }
+
+    @Subscribe
+    public void onPlayerDisconnect(DisconnectEvent event) {
+        if (context != null) context.forgetLogin(event.getPlayer().getUniqueId());
+    }
+
+    @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
+        if (context != null) context.close();
         if (worker != null) {
             worker.shutdownNow();
             try {
